@@ -1,10 +1,10 @@
 # 🔑 Anthropic Token Auto-Refresh for OpenClaw
 
-Automatically refresh Anthropic OAuth tokens that expire every few hours.
+**Use your Claude Max subscription with OpenClaw** — automatically refresh OAuth tokens that expire every few hours.
 
 ## The Problem
 
-Anthropic's Claude subscription uses OAuth tokens (`sk-ant-oat01-*`) that expire every few hours. Without refresh, your bot goes offline.
+If you want to use your Claude Max subscription (instead of API credits) with OpenClaw, you need OAuth tokens (`sk-ant-oat01-*`). But these tokens expire every few hours, taking your bot offline.
 
 **Symptoms:**
 - Bot stops responding after a few hours
