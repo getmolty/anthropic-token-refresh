@@ -19,108 +19,189 @@ A Playwright script that automatically:
 3. Captures the setup-token from callback
 4. Pastes it into OpenClaw
 
-Runs every 3 hours via launchd.
+Runs every 3 hours via launchd (macOS) or cron (Linux).
 
 ---
 
-## Setup Instructions
-
-### 1. Install dependencies
+## Quick Install (macOS)
 
 ```bash
-cd ~/your-workspace/scripts  # or wherever you keep scripts
+# Clone the repo
+git clone https://github.com/getmolty/anthropic-token-refresh.git
+cd anthropic-token-refresh
+
+# Install dependencies
+npm init -y
+npm install playwright
+npx playwright install chromium
+
+# Edit the script to set your paths
+nano refresh-anthropic-token.mjs
+# Update OPENCLAW_CLI and USER_DATA_DIR for your setup
+
+# Test it (browser will open - log in if needed)
+node refresh-anthropic-token.mjs
+
+# Install the launchd job
+cp com.openclaw.token-refresh.plist ~/Library/LaunchAgents/
+sed -i '' "s/YOUR_USERNAME/$(whoami)/g" ~/Library/LaunchAgents/com.openclaw.token-refresh.plist
+sed -i '' "s|/Users/YOUR_USERNAME/scripts|$(pwd)|g" ~/Library/LaunchAgents/com.openclaw.token-refresh.plist
+
+# Create logs directory and load the job
+mkdir -p ~/.openclaw/logs
+launchctl load ~/Library/LaunchAgents/com.openclaw.token-refresh.plist
+
+# Verify it's running
+launchctl list | grep token-refresh
+```
+
+---
+
+## Manual Setup (Step by Step)
+
+### 1. Clone and install dependencies
+
+```bash
+git clone https://github.com/getmolty/anthropic-token-refresh.git
+cd anthropic-token-refresh
+
 npm init -y
 npm install playwright
 npx playwright install chromium
 ```
 
-### 2. Copy the script
+### 2. Configure the script
 
-Copy `refresh-anthropic-token.mjs` to your scripts directory.
+Edit `refresh-anthropic-token.mjs` and update these paths:
 
-**Update these paths in the script for your setup:**
 ```javascript
-const OPENCLAW_CLI = 'openclaw';  // or full path to your CLI
+// Find your OpenClaw CLI path with: which openclaw
+const OPENCLAW_CLI = '/path/to/openclaw';  
+
+// Where to store browser session (auto-created)
 const USER_DATA_DIR = path.join(os.homedir(), '.openclaw/playwright-chrome-data');
 ```
 
-### 3. Test it manually first
+### 3. Test manually
 
 ```bash
 node refresh-anthropic-token.mjs
 ```
 
-A browser window opens. If you're logged into claude.ai, it auto-approves. Otherwise, log in once — the session persists.
+A browser window opens:
+- If already logged into claude.ai → auto-approves
+- If not → log in once, session persists for future runs
 
-### 4. Create launchd job (macOS)
+### 4. Set up automatic refresh
 
-Create `~/Library/LaunchAgents/com.openclaw.token-refresh.plist`:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.openclaw.token-refresh</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/opt/homebrew/bin/node</string>
-        <string>/Users/YOUR_USERNAME/scripts/refresh-anthropic-token.mjs</string>
-    </array>
-    <key>StartInterval</key>
-    <integer>10800</integer>
-    <key>StandardOutPath</key>
-    <string>/Users/YOUR_USERNAME/.openclaw/logs/token-refresh.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/YOUR_USERNAME/.openclaw/logs/token-refresh.log</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-        <key>HOME</key>
-        <string>/Users/YOUR_USERNAME</string>
-    </dict>
-</dict>
-</plist>
-```
-
-**Replace `YOUR_USERNAME` with your actual username.**
-
-### 5. Load it
+#### macOS (launchd)
 
 ```bash
+# Copy the template
+cp com.openclaw.token-refresh.plist ~/Library/LaunchAgents/
+
+# Edit it with your paths
+nano ~/Library/LaunchAgents/com.openclaw.token-refresh.plist
+```
+
+Update these values:
+- `/Users/YOUR_USERNAME` → your home directory
+- Path to `refresh-anthropic-token.mjs`
+- Path to `node` (find with `which node`)
+
+```bash
+# Create logs directory
 mkdir -p ~/.openclaw/logs
+
+# Load the job
 launchctl load ~/Library/LaunchAgents/com.openclaw.token-refresh.plist
+
+# Verify
+launchctl list | grep token-refresh
+```
+
+#### Linux (cron)
+
+```bash
+# Edit crontab
+crontab -e
+
+# Add this line (runs every 3 hours)
+0 */3 * * * cd /path/to/anthropic-token-refresh && /usr/bin/node refresh-anthropic-token.mjs >> ~/.openclaw/logs/token-refresh.log 2>&1
 ```
 
 ---
 
 ## How It Works
 
-- Runs every 3 hours (10800 seconds)
-- Uses persistent browser session (no re-login needed after first time)
-- Captures token from OAuth callback
-- Pipes it into `openclaw models auth paste-token`
+1. **Every 3 hours**, the script launches a Chromium browser
+2. **Navigates to** claude.ai OAuth with PKCE challenge
+3. **Auto-clicks** "Authorize" if session is valid
+4. **Captures** the setup-token from the callback URL
+5. **Pipes it** into `openclaw models auth paste-token`
+6. **Browser closes**, token is refreshed
 
-**First run:** Browser opens, you may need to log in manually once. After that, session cookies persist.
+The browser session persists in `~/.openclaw/playwright-chrome-data/`, so you only need to log in once.
 
 ---
 
 ## Troubleshooting
 
-**Browser doesn't auto-approve:**
-- Make sure you're logged into claude.ai in the Playwright browser
-- Run manually once and complete the login
+### Browser doesn't auto-approve
 
-**Token not being saved:**
-- Check that `openclaw` CLI is in your PATH
-- Verify the CLI path in the script
+Make sure you're logged into claude.ai:
+1. Run the script manually: `node refresh-anthropic-token.mjs`
+2. Complete the login in the browser window
+3. Future runs will auto-approve
 
-**Logs:**
+### Token not being saved
+
+Check your OpenClaw CLI path:
 ```bash
-tail -f ~/.openclaw/logs/token-refresh.log
+which openclaw
+# Update OPENCLAW_CLI in the script
 ```
+
+### View logs
+
+```bash
+# macOS
+tail -f ~/.openclaw/logs/token-refresh.log
+
+# Check launchd status
+launchctl list | grep token-refresh
+```
+
+### Force a refresh now
+
+```bash
+node refresh-anthropic-token.mjs
+```
+
+---
+
+## Uninstall
+
+```bash
+# macOS
+launchctl unload ~/Library/LaunchAgents/com.openclaw.token-refresh.plist
+rm ~/Library/LaunchAgents/com.openclaw.token-refresh.plist
+
+# Linux
+crontab -e  # remove the line
+
+# Remove browser session
+rm -rf ~/.openclaw/playwright-chrome-data
+```
+
+---
+
+## Requirements
+
+- Node.js >= 18
+- macOS or Linux
+- OpenClaw CLI installed and configured
+- Anthropic Claude subscription
 
 ---
 
